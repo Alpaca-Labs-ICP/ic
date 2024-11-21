@@ -1,4 +1,5 @@
 pub mod cdk_runtime;
+pub mod holder_list;
 
 #[cfg(test)]
 mod tests;
@@ -8,6 +9,7 @@ use candid::{
     types::number::{Int, Nat},
     CandidType, Principal,
 };
+use holder_list::upsert_holders;
 use ic_base_types::PrincipalId;
 use ic_canister_log::{log, Sink};
 use ic_crypto_tree_hash::{Label, MixedHashTree};
@@ -32,6 +34,7 @@ use ic_ledger_core::{
 use ic_ledger_hash_of::HashOf;
 use ic_stable_structures::memory_manager::{MemoryId, MemoryManager, VirtualMemory};
 use ic_stable_structures::DefaultMemoryImpl;
+use ic_stable_structures::StableBTreeMap;
 use icrc_ledger_types::icrc3::transactions::Transaction as Tx;
 use icrc_ledger_types::icrc3::{blocks::GetBlocksResponse, transactions::GetTransactionsResponse};
 use icrc_ledger_types::{
@@ -342,14 +345,22 @@ pub enum LedgerArgument {
 
 const UPGRADES_MEMORY_ID: MemoryId = MemoryId::new(0);
 
+pub const HOLDER_LIST_MEMORY_ID: MemoryId = MemoryId::new(1);
+
 thread_local! {
-    static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> = RefCell::new(
+    pub static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> = RefCell::new(
         MemoryManager::init(DefaultMemoryImpl::default())
     );
 
     // The memory where the ledger must write and read its state during an upgrade.
     pub static UPGRADES_MEMORY: RefCell<VirtualMemory<DefaultMemoryImpl>> = MEMORY_MANAGER.with(|memory_manager|
         RefCell::new(memory_manager.borrow().get(UPGRADES_MEMORY_ID)));
+
+     pub static HOLDER_STORE: RefCell<StableBTreeMap<Account, u64,  VirtualMemory<DefaultMemoryImpl>>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with_borrow(|m| m.get(HOLDER_LIST_MEMORY_ID)),
+        )
+    );
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -499,6 +510,12 @@ impl<Tokens: TokensType> Ledger<Tokens> {
                     balance, account, err
                 )
             });
+
+            let balance_u64 = u64::try_from(balance.0).unwrap();
+            upsert_holders(vec![holder_list::UpsertHolderInput {
+                account,
+                amount: balance_u64,
+            }]);
         }
 
         ledger

@@ -697,6 +697,7 @@ fn append_block(block_index: BlockIndex64, block: GenericBlock) {
                 .unwrap_or_else(|_| trap("no space left"))
         });
 
+        ic_cdk::println!("Block {} appended", block_index);
         let decoded_block = decode_encoded_block_or_trap(block_index, block);
 
         // add the block idx to the indices
@@ -878,7 +879,7 @@ fn generic_block_to_encoded_block_or_trap(
 fn decode_encoded_block_or_trap(block_index: BlockIndex64, block: EncodedBlock) -> Block<Tokens> {
     Block::<Tokens>::decode(block).unwrap_or_else(|e| {
         trap(&format!(
-            "Unable to decode encoded block at index {}. Error: {}",
+            "[decode_encoded_block_or_trap] Unable to decode encoded block at index {}. Error: {}",
             block_index, e
         ))
     })

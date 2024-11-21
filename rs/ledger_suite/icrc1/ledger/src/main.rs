@@ -14,7 +14,10 @@ use ic_icrc1::{
     endpoints::{convert_transfer_error, StandardRecord},
     Operation, Transaction,
 };
-use ic_icrc1_ledger::{InitArgs, Ledger, LedgerArgument};
+use ic_icrc1_ledger::{
+    holder_list::{self, upsert_holders, HolderListResp, UpsertHolderInput},
+    InitArgs, Ledger, LedgerArgument, HOLDER_LIST_MEMORY_ID, HOLDER_STORE, MEMORY_MANAGER,
+};
 use ic_icrc1_ledger::{LEDGER_VERSION, UPGRADES_MEMORY};
 use ic_ledger_canister_core::ledger::{
     apply_transaction, archive_blocks, LedgerAccess, LedgerContext, LedgerData,
@@ -26,6 +29,7 @@ use ic_ledger_core::timestamp::TimeStamp;
 use ic_ledger_core::tokens::Zero;
 use ic_stable_structures::reader::{BufferedReader, Reader};
 use ic_stable_structures::writer::{BufferedWriter, Writer};
+use ic_stable_structures::StableBTreeMap;
 use icrc_ledger_types::icrc2::approve::{ApproveArgs, ApproveError};
 use icrc_ledger_types::icrc21::{
     errors::Icrc21Error, lib::build_icrc21_consent_info_for_icrc1_and_icrc2_endpoints,
@@ -200,6 +204,10 @@ fn post_upgrade(args: Option<LedgerArgument>) {
         });
         ic_cdk::println!("Successfully read state from memory manager managed stable structures");
         LEDGER.with_borrow_mut(|ledger| *ledger = Some(state));
+        HOLDER_STORE.with_borrow_mut(|store| {
+            *store =
+                StableBTreeMap::init(MEMORY_MANAGER.with_borrow(|m| m.get(HOLDER_LIST_MEMORY_ID)));
+        });
     }
 
     Access::with_ledger_mut(|ledger| {
@@ -455,6 +463,22 @@ async fn execute_transfer(
         memo,
         created_at_time,
     )?;
+
+    // update holder
+    let balance_of_spender =
+        Access::with_ledger(|ledger| ledger.balances().account_balance(&from_account));
+    let balance_of_receiver = Access::with_ledger(|ledger| ledger.balances().account_balance(&to));
+
+    upsert_holders(vec![
+        UpsertHolderInput {
+            account: from_account,
+            amount: balance_of_spender.to_u64(),
+        },
+        UpsertHolderInput {
+            account: to,
+            amount: balance_of_receiver.to_u64(),
+        },
+    ]);
 
     // NB. we need to set the certified data before the first async call to make sure that the
     // blockchain state agrees with the certificate while archiving is in progress.
@@ -767,6 +791,14 @@ async fn icrc2_approve(arg: ApproveArgs) -> Result<Nat, ApproveError> {
                 };
                 err
             })?;
+
+        // update holder
+        let balance_of_caller = ledger.balances().account_balance(&from_account);
+        upsert_holders(vec![UpsertHolderInput {
+            account: from_account,
+            amount: balance_of_caller.to_u64(),
+        }]);
+
         Ok(block_idx)
     })?;
 
@@ -853,6 +885,27 @@ fn icrc10_supported_standards() -> Vec<StandardRecord> {
     supported_standards()
 }
 
+#[query]
+#[candid_method(query)]
+fn get_top(num: u32) -> HolderListResp {
+    let total_supply = Access::with_ledger(|ledger| ledger.balances().total_supply());
+    holder_list::get_holders(0, num, total_supply.to_u64())
+}
+
+#[query]
+#[candid_method(query)]
+fn get_top_100_holder() -> HolderListResp {
+    let total_supply = Access::with_ledger(|ledger| ledger.balances().total_supply());
+
+    holder_list::get_holders(0, 100, total_supply.to_u64())
+}
+
+#[query]
+#[candid_method(query)]
+fn get_total_holder() -> u64 {
+    holder_list::count_holders()
+}
+
 #[update]
 #[candid_method(update)]
 fn icrc21_canister_call_consent_message(
@@ -872,7 +925,7 @@ fn icrc21_canister_call_consent_message(
     )
 }
 
-candid::export_service!();
+ic_cdk::export_candid!();
 
 #[query]
 fn __get_candid_interface_tmp_hack() -> String {
