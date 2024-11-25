@@ -33,26 +33,30 @@ pub fn upsert_holders(input: Vec<UpsertHolderInput>) {
         for holder in input {
             list.insert(holder.account, holder.amount);
         }
-        let mut sorted_list: Vec<_> = list.iter().collect();
-        sorted_list.sort_by(|a, b| b.1.cmp(&a.1)); // Sort in descending order by amount
-        list.clear_new();
-        for (account, amount) in sorted_list {
-            list.insert(account.clone(), amount);
-        }
     })
 }
 
 pub fn get_holders(offset: u32, limit: u32, total_supply: u64) -> HolderListResp {
     let mut data = vec![];
     let mut total = 0;
+
     HOLDER_STORE.with_borrow(|list| {
-        ic_cdk::print(format!("list: {:?}", list.len()));
         total = list.len() as u64;
-        for (account, amount) in list.iter().skip(offset as usize).take(limit as usize) {
-            let percentage = (amount as f64) / (total_supply as f64);
+
+        let mut sorted_list: Vec<_> = list.iter().collect();
+        sorted_list.sort_by(|a, b| b.1.cmp(&a.1)); // Sort in descending order by amount
+
+        // Paginate the sorted list
+        let paginated_list = sorted_list
+            .iter()
+            .skip(offset as usize)
+            .take(limit as usize);
+
+        for (account, amount) in paginated_list {
+            let percentage = (*amount as f64) / (total_supply as f64);
             data.push(HolderData {
                 account: account.clone(),
-                amount: Nat::from(amount),
+                amount: Nat::from(*amount),
                 percentage,
             });
         }
@@ -70,4 +74,4 @@ pub fn count_holders() -> u64 {
         total = list.len() as u64;
     });
     total
-};
+}

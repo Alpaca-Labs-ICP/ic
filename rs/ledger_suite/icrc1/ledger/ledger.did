@@ -277,6 +277,7 @@ type Vec = vec variant {
 service : (LedgerArgument) -> {
   archives : () -> (vec ArchiveInfo) query;
   get_blocks : (GetBlocksRequest) -> (GetBlocksResponse) query;
+  get_cycles : () -> (nat64) query;
   get_data_certificate : () -> (DataCertificate) query;
   get_top : (nat32) -> (HolderListResp) query;
   get_top_100_holder : () -> (HolderListResp) query;
