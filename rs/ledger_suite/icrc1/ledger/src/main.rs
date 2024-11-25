@@ -925,6 +925,12 @@ fn icrc21_canister_call_consent_message(
     )
 }
 
+#[query]
+async fn get_cycles() -> u64 {
+    let cycles = ic_cdk::api::canister_balance();
+    return cycles;
+}
+
 ic_cdk::export_candid!();
 
 #[query]
